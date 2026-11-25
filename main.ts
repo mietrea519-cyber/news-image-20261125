@@ -1,36 +1,52 @@
-// The World in One Day — Wednesday 25 November 2026
-// Copies the composed front-page image (entry.png, next to this file)
-// into the directory named by MAKEFUN_OUTPUT_DIR (default: /output).
+// The World in One Day — Wednesday 25 November 2026.
+//
+// Entry program: place the composed front-page image (entry.png, sitting
+// next to this file) into the output directory the harness names through
+// MAKEFUN_OUTPUT_DIR, falling back to /output when it is unset.
 
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = join(here, "entry.png");
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-const destination = join(outDir, "entry.png");
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
 
-if (!existsSync(source)) {
-  console.error(`error: source image not found: ${source}`);
+function fail(message: string): never {
+  console.error(`entry failed: ${message}`);
   process.exit(1);
 }
 
-mkdirSync(outDir, { recursive: true });
-copyFileSync(source, destination);
+function isJpeg(bytes: Buffer): boolean {
+  return JPEG_MAGIC.every((byte, i) => bytes[i] === byte);
+}
 
-// Verify the copy landed intact: it must exist and match the source size.
-if (!existsSync(destination)) {
-  console.error(`error: copy failed, destination missing: ${destination}`);
-  process.exit(1);
+function main(): void {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sourcePath = join(here, "entry.png");
+  const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+  const targetPath = join(outputDir, "entry.png");
+
+  if (!existsSync(sourcePath)) {
+    fail(`no front-page image at ${sourcePath}`);
+  }
+  if (!isJpeg(readFileSync(sourcePath).subarray(0, 3))) {
+    fail(`front-page image at ${sourcePath} is not a JPEG`);
+  }
+  const expectedBytes = statSync(sourcePath).size;
+
+  mkdirSync(outputDir, { recursive: true });
+  copyFileSync(sourcePath, targetPath);
+
+  if (!existsSync(targetPath)) {
+    fail(`copy produced no file at ${targetPath}`);
+  }
+  const actualBytes = statSync(targetPath).size;
+  if (actualBytes !== expectedBytes) {
+    fail(`copied ${actualBytes} bytes but the source has ${expectedBytes}`);
+  }
+  if (!isJpeg(readFileSync(targetPath).subarray(0, 3))) {
+    fail(`copied file at ${targetPath} is not a JPEG`);
+  }
+  console.log(`wrote ${targetPath} (${actualBytes} bytes, JPEG verified)`);
 }
-const sourceBytes = statSync(source).size;
-const copiedBytes = statSync(destination).size;
-if (copiedBytes !== sourceBytes) {
-  console.error(
-    `error: size mismatch after copy: source is ${sourceBytes} bytes, ` +
-      `destination is ${copiedBytes} bytes`,
-  );
-  process.exit(1);
-}
-console.log(`Copied ${source} -> ${destination} (${copiedBytes} bytes, verified)`);
+
+main();
